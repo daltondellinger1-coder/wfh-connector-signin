@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Approve Connector</title>
+<style>
+  :root { --bg:#0b1630; --card:#13224a; --gold:#d4a843; --text:#ffffff; --muted:#aab4cc; --err:#ff8a8a; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--text); font:16px/1.5 system-ui, sans-serif; padding:16px; box-sizing:border-box; }
+  .card { background:var(--card); border:1px solid #2a3a66; border-radius:12px; padding:24px; width:100%; max-width:420px; }
+  h1 { font-size:20px; margin:0 0 12px; color:var(--gold); }
+  label { display:block; font-size:13px; color:var(--muted); margin-top:12px; }
+  input { width:100%; box-sizing:border-box; padding:10px; border-radius:8px; border:1px solid #2a3a66; background:#0b1630; color:var(--text); font-size:16px; }
+  button { margin-top:16px; padding:10px 16px; border-radius:8px; border:0; font-weight:600; cursor:pointer; font-size:15px; }
+  .primary { background:var(--gold); color:#0b1630; }
+  .secondary { background:transparent; color:var(--muted); border:1px solid #2a3a66; margin-left:8px; }
+  .muted { color:var(--muted); font-size:14px; word-break:break-all; }
+  .err { color:var(--err); font-size:14px; margin-top:12px; }
+</style>
+</head>
+<body>
+<main class="card" id="app"><p class="muted">Loading…</p></main>
+<script type="module">
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.58.0/+esm";
+// Public values only: project URL and publishable (anon) key. No secrets on this page.
+const SUPABASE_URL = "https://hvtuqgpnkyoeohxmjsea.supabase.co";
+const PUBLISHABLE_KEY = "sb_publishable_YxdsD6hUQmqdbqYDf1DV7A_tUQ06o3n";
+const sb = createClient(SUPABASE_URL, PUBLISHABLE_KEY);
+const app = document.getElementById("app");
+const authId = new URLSearchParams(location.search).get("authorization_id");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const go = (u) => { if (u) location.assign(u); };
+
+function fail(msg) { app.innerHTML = `<h1>Can't continue</h1><p class="err">${esc(msg)}</p>`; }
+
+async function showLogin() {
+  app.innerHTML = `<h1>Sign in</h1>
+    <p class="muted">Sign in to approve access to your FlipperForce connector.</p>
+    <form id="f"><label>Email<input id="e" type="email" autocomplete="username" required></label>
+    <label>Password<input id="p" type="password" autocomplete="current-password" required></label>
+    <button class="primary" type="submit">Sign in</button><div id="m" class="err"></div></form>`;
+  document.getElementById("f").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const { error } = await sb.auth.signInWithPassword({ email: e.value, password: p.value });
+    if (error) { m.textContent = error.message; return; }
+    showConsent();
+  };
+}
+
+async function showConsent() {
+  const { data, error } = await sb.auth.oauth.getAuthorizationDetails(authId);
+  if (error || !data) return fail(error?.message || "Invalid authorization request.");
+  if (!("authorization_id" in data)) return go(data.redirect_url || data.redirect_to);
+  app.innerHTML = `<h1>Allow ${esc(data.client?.name || data.client?.client_name || "this app")}?</h1>
+    <p>It will get <strong>read-only</strong> access to FlipperForce project, spending, receipt and update data.</p>
+    <p class="muted">Returns to: ${esc(data.redirect_uri)}</p>
+    ${data.scope ? `<p class="muted">Scopes: ${esc(data.scope)}</p>` : ""}
+    <button class="primary" id="ok">Approve</button><button class="secondary" id="no">Deny</button><div id="m" class="err"></div>`;
+  const decide = async (approve) => {
+    const r = approve ? await sb.auth.oauth.approveAuthorization(authId) : await sb.auth.oauth.denyAuthorization(authId);
+    if (r.error) { m.textContent = r.error.message; return; }
+    go(r.data?.redirect_url || r.data?.redirect_to);
+  };
+  ok.onclick = () => decide(true);
+  no.onclick = () => decide(false);
+}
+
+(async () => {
+  if (!authId) return fail("Missing authorization_id. Start from the app you're connecting.");
+  const { data } = await sb.auth.getSession();
+  if (data.session) showConsent(); else showLogin();
+})();
+</script>
+</body>
+</html>
