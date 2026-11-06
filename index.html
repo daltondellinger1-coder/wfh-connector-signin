@@ -21,7 +21,7 @@
 <body>
 <main class="card" id="app"><p class="muted">Loading…</p></main>
 <script type="module">
-import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.58.0/+esm";
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.115.0/+esm";
 // Public values only: project URL and publishable (anon) key. No secrets on this page.
 const SUPABASE_URL = "https://hvtuqgpnkyoeohxmjsea.supabase.co";
 const PUBLISHABLE_KEY = "sb_publishable_YxdsD6hUQmqdbqYDf1DV7A_tUQ06o3n";
@@ -41,9 +41,12 @@ async function showLogin() {
     <button class="primary" type="submit">Sign in</button><div id="m" class="err"></div></form>`;
   document.getElementById("f").onsubmit = async (ev) => {
     ev.preventDefault();
-    const { error } = await sb.auth.signInWithPassword({ email: e.value, password: p.value });
-    if (error) { m.textContent = error.message; return; }
-    showConsent();
+    m.textContent = "";
+    try {
+      const { error } = await sb.auth.signInWithPassword({ email: e.value, password: p.value });
+      if (error) { m.textContent = error.message; return; }
+      await showConsent();
+    } catch (err) { m.textContent = "Error: " + (err?.message || err); }
   };
 }
 
@@ -56,11 +59,13 @@ async function showConsent() {
     <p class="muted">Returns to: ${esc(data.redirect_uri)}</p>
     ${data.scope ? `<p class="muted">Scopes: ${esc(data.scope)}</p>` : ""}
     <button class="primary" id="ok">Approve</button><button class="secondary" id="no">Deny</button><div id="m" class="err"></div>`;
-  const decide = async (approve) => {
+  const decide = async (approve) => { try {
     const r = approve ? await sb.auth.oauth.approveAuthorization(authId) : await sb.auth.oauth.denyAuthorization(authId);
     if (r.error) { m.textContent = r.error.message; return; }
-    go(r.data?.redirect_url || r.data?.redirect_to);
-  };
+    const u = r.data?.redirect_url || r.data?.redirect_to;
+    if (!u) { m.textContent = "No redirect returned: " + JSON.stringify(r.data); return; }
+    go(u);
+  } catch (err) { m.textContent = "Error: " + (err?.message || err); } };
   ok.onclick = () => decide(true);
   no.onclick = () => decide(false);
 }
@@ -69,7 +74,7 @@ async function showConsent() {
   if (!authId) return fail("Missing authorization_id. Start from the app you're connecting.");
   const { data } = await sb.auth.getSession();
   if (data.session) showConsent(); else showLogin();
-})();
+})().catch((err) => fail("Error: " + (err?.message || err)));
 </script>
 </body>
 </html>
